@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang ="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial scale=1.0">
+        <title>Flexi-Time</title>
+        <link rel="stylesheet" href="styles.css">
+        <script src="app.js" defer></script>
+    </head>
+<body>
+    <header>
+        <a class="logo">Flexi-Time</a>
+        <button id="add-activity-button">+ Add Activity</button>
+    </header>
+    <dialog id="activity-dialog">
+        <div class="dialog-header">
+            <h2 id="dialog-title">Add an activity</h2>
+            <p>Choose something you want to make time for every day.</p>
+        </div>
+        <form id="activity-form">
+            <div class="form-field">
+                <label for="activity-name">Activity Name</label>
+                <input type="text" id="activity-name" name="activity-name" placeholder="e.g. Math Study" maxlength="60" required>
+            </div>
+
+            <div class="form-field">
+                <label for="activity-duration">Daily Target (minutes)</label>
+                <input type="number" id="activity-duration" name="activity-duration" placeholder="e.g. 45" min="1" max="1440" step="1" value="30" required>
+            </div>
+
+            <div class="form-field">
+                <!--Let users create their own categories in future versions-->
+                <label for="activity-category">Category</label>
+                <select id="activity-category" name="activity-category">
+                    <option value="School">School</option>
+                    <option value="Music">Music</option>
+                    <option value="Health">Health</option>
+                    <option value="Personal" selected>Personal</option>
+                    <option value="Other">Other</option>
+                </select>
+            </div>
+            <div class="dialog-actions">
+                <button type="button" id="cancel-activity-button" class="secondary-button">Cancel</button>
+                <button type="submit" class="primary-button">Create Activity</button>
+            </div>
+        </form>
+    </dialog>
+
+    <main>
+        <section class="welcome">
+            <h1>Today's Schedule</h1>
+        </section>
+
+        <section class="daily-summary">
+            <div>
+                <span>Planned</span>
+                <h2 id="planned-time">0 min</h2>
+            </div>
+            <div>
+                <span>Completed</span>
+                <h2 id="completed-time">0 min</h2>
+            </div>
+            <div>
+                <span>Remaining</span>
+                <h2 id="remaining-time">0 min</h2>
+            </div>
+        </section>
+
+        <section class="activites">
+            <h2>Your Activities</h2>
+            <div id="activity-list">
+                <p>Add your first activity to see something here.</p>
+            </div>
+        </section>
+    </main>
+</body>
+</html>

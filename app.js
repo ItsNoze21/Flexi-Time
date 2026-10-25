@@ -2,6 +2,7 @@ const addButton = document.querySelector("#add-activity-button");
 const dialog = document.querySelector("#activity-dialog");
 const form = document.querySelector("#activity-form");
 const cancelButton = document.querySelector("#cancel-activity-button");
+const completionSound = document.querySelector("#completed-notification");
 
 const nameInput = document.querySelector("#activity-name");
 const durationInput = document.querySelector("#activity-duration");
@@ -13,21 +14,167 @@ const plannedDisplay = document.querySelector("#planned-time");
 const completedDisplay = document.querySelector("#completed-time");
 const remainingDisplay = document.querySelector("#remaining-time");
 
-const activities = [];
+let activities = [];
 
-function formatTime(minutes) {
-    const hours = Math.floor(minutes/60);
-    const extraMinutes = minutes % 60;
+try {
+    const savedActivities = JSON.parse(
+        localStorage.getItem("flexiTimeActivities")
+    );
 
-    if (hours === 0) {
-        return `${minutes} min`
+    if (Array.isArray(savedActivities)) {
+        activities = savedActivities.map((activity) => ({
+            ...activity,
+            completedSeconds: Number.isFinite(activity.completedSeconds)
+            ? activity.completedSeconds
+            : (Number(activity.completedMinutes) || 0) * 60
+        }));
+    }
+}
+    catch (error) {
+        console.log("Could not load saved activities, error")
+}
+
+function saveActivities() {
+    localStorage.setItem(
+        "flexiTimeActivities",
+        JSON.stringify(activities)
+    );
+}
+
+let activeActivity = null;
+let lastTickTime = null;
+let timerInterval = null;
+
+function recordElapsedTime() {
+    if (activeActivity === null || lastTickTime === null) {
+        return false;
     }
 
-    if (extraMinutes === 0) {
-    return `${hours} hr${hours === 1 ? "" : "s"}`;
+    const now = Date.now();
+    const elapsedSeconds = (now - lastTickTime) / 1000;
+
+    if (elapsedSeconds <= 0) {
+        return false;
     }
 
-    return `${hours} hr${hours === 1 ? "" : "s"} ${extraMinutes} min`
+    lastTickTime = now;
+
+    const targetSeconds = activeActivity.dailyTargetMinutes * 60;
+
+    activeActivity.completedSeconds = Math.min(
+        targetSeconds,
+        activeActivity.completedSeconds + elapsedSeconds
+    );
+
+    if (activeActivity.completedSeconds >= targetSeconds) {
+        completionSound.currentTime = 0;
+        completionSound.play().catch((error) => {
+            console.error("Could not play completion sound:", error);
+        });
+        activeActivity = null;
+        lastTickTime = null;
+        
+        clearInterval(timerInterval);
+        timerInterval = null;
+    }
+
+    saveActivities();
+    return true;
+}
+
+function updateTimer() {
+    if (recordElapsedTime()) {
+        displayActivities();
+    }
+}
+
+function startActivity(activity) {
+    recordElapsedTime();
+
+    const targetSeconds = activity.dailyTargetMinutes * 60;
+
+    if (activity.completedSeconds >= targetSeconds) {
+        displayActivities();
+        return;
+    }
+
+    if (timerInterval !== null) {
+        clearInterval(timerInterval)
+    }
+
+    activeActivity = activity;
+    lastTickTime = Date.now();
+
+    timerInterval = setInterval(updateTimer, 1000);
+
+    displayActivities();
+}
+
+function pauseActivity() {
+    if (activeActivity === null) {
+        return;
+    }
+
+    recordElapsedTime();
+
+    if (timerInterval !== null) {
+        clearInterval(timerInterval);
+    }
+
+    timerInterval = null;
+    activeActivity = null;
+    lastTickTime = null;
+
+    saveActivities();
+    displayActivities();
+}
+
+function deleteActivity(activity) {
+    const confirmed = confirm(
+        `Delete "${activity.name}"? This cannot be undone.`
+    );
+
+    if (!confirmed) {
+        return;
+    }
+
+    if (activeActivity === activity) {
+        if (timerInterval !== null) {
+            clearInterval(timerInterval);
+        }
+
+        timerInterval = null;
+        activeActivity = null;
+        lastTickTime = null;
+    }
+
+    activities = activities.filter((item) => item !== activity);
+
+    saveActivities();
+    displayActivities();
+}
+
+function formatTime(totalSeconds) {
+    const seconds = Math.floor(totalSeconds);
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const extraSeconds = seconds % 60;
+
+    const parts = [];
+
+    if (hours > 0) {
+        parts.push(`${hours} hr${hours === 1 ? "" : "s"}`);
+    }
+
+    if (minutes > 0) {
+        parts.push(`${minutes} min`);
+    }
+
+    if (extraSeconds > 0) {
+        parts.push(`${extraSeconds} sec`)
+    }
+
+    return parts.length > 0 ? parts.join(" ") : "0 min";
 }
 
 function updateSummary() {
@@ -36,11 +183,13 @@ function updateSummary() {
     let remaining = 0;
 
     for (const activity of activities) {
-        planned += activity.dailyTargetMinutes;
-        completed += activity.completedMinutes;
+        const targetSeconds = activity.dailyTargetMinutes * 60;
+
+        planned += targetSeconds;
+        completed += activity.completedSeconds;
         remaining += Math.max(
             0,
-            activity.dailyTargetMinutes - activity.completedMinutes
+            targetSeconds - activity.completedSeconds
         );
     }
 
@@ -54,7 +203,7 @@ function displayActivities() {
 
     if (activities.length === 0) {
         const message = document.createElement("p");
-        message.textContent = "Your schedule starts here. Add your first activity.";
+        message.textContent = "Add an activity to see something here.";
         activityList.appendChild(message);
         updateSummary();
         return;
@@ -78,15 +227,15 @@ function displayActivities() {
 
         const target = document.createElement("p");
         target.className = "activity-target";
-        target.textContent = `Daily Target | ${formatTime(activity.dailyTargetMinutes)}`
+        target.textContent = `Daily Target | ${formatTime(activity.dailyTargetMinutes * 60)}`;
 
         const progressInfo = document.createElement("div");
         progressInfo.className = "activity-progress-meta";
 
         const completed = document.createElement("span");
-        completed.textContent = `${formatTime(activity.completedMinutes)} completed`;
+        completed.textContent = `${formatTime(activity.completedSeconds)} completed`;
 
-        const timeLeft = Math.max(0, activity.dailyTargetMinutes - activity.completedMinutes);
+        const timeLeft = Math.max(0, activity.dailyTargetMinutes * 60 - activity.completedSeconds);
 
         const remaining = document.createElement("span");
         remaining.textContent = `${formatTime(timeLeft)} left`
@@ -99,12 +248,47 @@ function displayActivities() {
         const progress = document.createElement("div");
         progress.className = "activity-progress-fill";
 
-        const percentage = (activity.completedMinutes / activity.dailyTargetMinutes) * 100;
+        const percentage = (activity.completedSeconds / (activity.dailyTargetMinutes * 60)) * 100;
 
         progress.style.width = `${Math.min(100, percentage)}%`;
         progressBar.appendChild(progress);
 
-        card.append(header, target, progressInfo, progressBar);
+        const actions = document.createElement("div");
+        actions.className = "activity-card-actions";
+
+        const timerButton = document.createElement("button");
+        timerButton.type = "button";
+        timerButton.className = "timer-button";
+
+        const isComplete = activity.completedSeconds >= activity.dailyTargetMinutes * 60;
+        if (isComplete) {
+            timerButton.textContent = "Completed";
+            timerButton.disabled = true;
+
+        } else {
+            timerButton.textContent = activeActivity === activity ? "Pause" : "Start";
+
+            timerButton.addEventListener("click", () => {
+                if (activeActivity === activity) {
+                    pauseActivity();
+                } else {
+                    startActivity(activity);
+                }
+            });
+        }
+
+        const deleteButton = document.createElement("button");
+        deleteButton.type = "button";
+        deleteButton.className = "delete-button";
+        deleteButton.textContent = "Delete";
+
+        deleteButton.addEventListener("click", () => {
+            deleteActivity(activity);
+        });
+
+        actions.append(timerButton, deleteButton);
+
+        card.append(header, target, progressInfo, progressBar, actions);
         activityList.appendChild(card);
     }
 
@@ -144,11 +328,12 @@ form.addEventListener("submit", (event) => {
         name: name,
         dailyTargetMinutes: duration,
         category: categoryInput.value,
-        completedMinutes: 0
+        completedSeconds: 0
     };
 
     activities.push(activity);
 
+    saveActivities();
     displayActivities();
     dialog.close();
     form.reset();

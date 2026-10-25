@@ -308,3 +308,45 @@ main {
     border-radius: inherit;
     transition: width 200ms ease;
 }
+
+.activity-card-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 20px;
+}
+
+.timer-button,
+.delete-button {
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 650;
+    transition: var(--background) 150ms ease, border-color 150ms ease;
+}
+
+.timer-button {
+    color: #15161a;
+    background: var(--accent);
+}
+
+.timer-button:hover:not(:disabled) {
+    background: var(--accent-hover);
+}
+
+.timer-button:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.delete-button {
+    color: var(--muted);
+    background: transparent;
+}
+
+.delete-button:hover {
+    color: white;
+    border-color: #68616b;
+    background: #ffffff0a;
+}

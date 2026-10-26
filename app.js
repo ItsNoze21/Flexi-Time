@@ -18,6 +18,14 @@ const plannedDisplay = document.querySelector("#planned-time");
 const completedDisplay = document.querySelector("#completed-time");
 const remainingDisplay = document.querySelector("#remaining-time");
 
+const pomodoroTime = document.querySelector("#pomodoro-time");
+const pomodoroStatus = document.querySelector("#pomodoro-status");
+const pomodoroActivity = document.querySelector("#pomodoro-activity");
+const pomodoroStartButton = document.querySelector("#pomodoro-start");
+const pomodoroResetButton = document.querySelector("#pomodoro-reset")
+const pomodoroSessionCount = document.querySelector("#pomodoro-session-count");
+const pomodoroModeButtons = document.querySelectorAll(".pomodoro-mode");
+
 let activities = [];
 
 try {
@@ -48,6 +56,20 @@ function saveActivities() {
 let activeActivity = null;
 let lastTickTime = null;
 let timerInterval = null;
+
+const pomodoroDurations = {
+    focus: 25 * 60,
+    shortBreak: 5 * 60,
+    longBreak: 15 * 60
+};
+
+let pomodoroMode = "focus";
+let pomodoroRemainingSeconds = pomodoroDurations.focus;
+let pomodoroInterval = null;
+let pomodoroLastTick = null;
+let pomodoroRunning = false;
+let pomodoroSessionsCompleted = 0;
+let pomodoroNeedsManualStart = false;
 
 function recordElapsedTime() {
     if (activeActivity === null || lastTickTime === null) {
@@ -84,6 +106,268 @@ function recordElapsedTime() {
 
     saveActivities();
     return true;
+}
+
+function formatPomodoroTime(totalSeconds) {
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+
+    return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function updatePomodoroDisplay() {
+    pomodoroTime.textContent = formatPomodoroTime(pomodoroRemainingSeconds);
+
+    pomodoroModeButtons.forEach((button) => {
+        const isSelected = button.dataset.mode === pomodoroMode;
+
+        button.setAttribute("aria-pressed", String(isSelected));
+        button.classList.toggle("selected", isSelected);
+    });
+
+    if (pomodoroRunning) {
+        pomodoroStartButton.textContent = "Pause Session";
+    } else if (pomodoroNeedsManualStart) {
+        pomodoroStartButton.textContent = "Start Next Session";
+    } else {
+        pomodoroStartButton.textContent = "Start Session";
+    }
+
+    pomodoroSessionCount.textContent = pomodoroSessionsCompleted;
+}
+
+function updatePomodoroStatus(message) {
+    pomodoroStatus.textContent = message;
+}
+
+function stopPomodoroInterval() {
+    if (pomodoroInterval !== null) {
+        clearInterval(pomodoroInterval);
+        pomodoroInterval = null;
+    }
+
+    pomodoroLastTick = null;
+}
+
+function selectPomodoroMode(mode) {
+    if (!Object.hasOwn(pomodoroDurations, mode)) {
+        return;
+    }
+    stopPomodoroInterval();
+    pomodoroRunning = false;
+    pomodoroNeedsManualStart = false;
+    pomodoroMode = mode;
+    pomodoroRemainingSeconds = pomodoroDurations[mode];
+
+    if (mode === "focus") {
+        updatePomodoroStatus("You're ready to focus, choose an activity to start.");
+    } else {
+        updatePomodoroStatus("Take a break, start when you're ready.")
+    }
+
+    updatePomodoroDisplay();
+}
+
+function finishPomodoroSession() {
+    stopPomodoroInterval();
+    pomodoroRunning = false;
+    pomodoroRemainingSeconds = 0;
+    pomodoroNeedsManualStart = true;
+
+    if (pomodoroMode === "focus") {
+        pomodoroSessionsCompleted += 1;
+        updatePomodoroStatus("Focus session completed, take a break when you're ready.")
+    } else {
+        updatePomodoroStatus("Break completed, start your next focus session when you're ready.")
+    }
+
+    savePomodoroState();
+    updatePomodoroDisplay();
+
+    completionSound.currentTime = 0;
+
+    completionSound.play().catch((error) => {
+        console.error("Could not play completion sound:", error);
+    });
+}
+
+function savePomodoroState() {
+    localStorage.setItem("flexiTimePomodoroSessions", String(pomodoroSessionsCompleted));
+}
+
+function tickPomodoro() {
+    if (!pomodoroRunning || pomodoroLastTick === null) {
+        return;
+    }
+
+    const now = Date.now();
+    const elapsedSeconds = Math.floor((now - pomodoroLastTick) / 1000);
+    
+    if (elapsedSeconds < 1) {
+        return;
+    }
+
+    pomodoroLastTick += elapsedSeconds * 1000;
+
+    if (pomodoroMode === "focus") {
+        const selectedActivity = activities.find((activity) =>
+        String(activities.indexOf(activity)) === pomodoroActivity.value
+    );
+
+    if (selectedActivity) {
+        const targetSeconds = selectedActivity.dailyTargetMinutes * 60;
+        selectedActivity.completedSeconds = Math.min(
+            targetSeconds, selectedActivity.completedSeconds + elapsedSeconds
+        );
+
+        saveActivities();
+        displayActivities();
+
+        if (selectedActivity.completedSeconds >= targetSeconds) {
+            updatePomodoroStatus("You've reached your daily target. Choose another activity or switch modes.");
+        updatePomodoroActivities();
+        }
+        }
+    }
+    pomodoroRemainingSeconds = Math.max(0, pomodoroRemainingSeconds - elapsedSeconds);
+
+    if (pomodoroRemainingSeconds === 0) {
+        finishPomodoroSession();
+        return;
+    }
+
+    updatePomodoroDisplay();
+}
+
+function startPomodoroSession() {
+    if (pomodoroRunning) {
+        tickPomodoro();
+
+        if (!pomodoroRunning) {
+            return;
+        }
+
+        stopPomodoroInterval();
+        pomodoroRunning = false;
+
+        updatePomodoroStatus("Session paused.");
+        updatePomodoroDisplay();
+        return;
+    }
+
+    if (pomodoroRemainingSeconds <= 0) {
+        updatePomodoroStatus("Choose a session mode to begin again.");
+        return;
+    }
+
+    if (pomodoroMode === "focus") {
+        const selectedActivity = activities[Number(pomodoroActivity.value)];
+
+        if (!selectedActivity) {
+            updatePomodoroStatus(
+                "Select an activity before you start a focus session."
+            );
+            return;
+        }
+
+        if (
+            selectedActivity.completedSeconds >=
+            selectedActivity.dailyTargetMinutes * 60
+        ) {
+            updatePomodoroStatus(
+                "That activity has reached its daily target. Choose another activity to continue."
+            );
+            updatePomodoroActivities();
+            return;
+        }
+
+        if (activeActivity !== null) {
+            pauseActivity();
+        }
+    }
+
+    pomodoroNeedsManualStart = false;
+    pomodoroRunning = true;
+    pomodoroLastTick = Date.now();
+    pomodoroInterval = setInterval(tickPomodoro, 250);
+
+    updatePomodoroStatus(
+        pomodoroMode === "focus"
+            ? "Focus session in progress."
+            : "Time for a break."
+    );
+
+    updatePomodoroDisplay();
+}
+
+function resetPomodoroSession() {
+    stopPomodoroInterval();
+    pomodoroRunning = false;
+    pomodoroNeedsManualStart = false;
+    pomodoroRemainingSeconds = pomodoroDurations[pomodoroMode];
+
+    updatePomodoroStatus("Timer reset, start whenever you're ready.");
+    updatePomodoroDisplay();
+}
+
+function updatePomodoroActivities() {
+    const previousValue = pomodoroActivity.value;
+    pomodoroActivity.replaceChildren();
+    
+    const availableActivities = activities
+    .map ((activity, index) => ({activity, index}))
+    .filter(({activity}) =>
+    activity.completedSeconds < activity.dailyTargetMinutes * 60
+);
+if (availableActivities.length === 0) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = activities.length === 0
+    ? "Add an activity first"
+    : "All activities completed";
+
+    pomodoroActivity.appendChild(option);
+    pomodoroActivity.disabled = true;
+    return;
+}
+
+pomodoroActivity.disabled = false;
+
+for (const {activity, index} of availableActivities) {
+    const option = document.createElement("option");
+    option.value = String(index);
+    option.textContent = activity.name;
+    pomodoroActivity.appendChild(option);
+}
+
+if (availableActivities.some(({index}) => String(index) === previousValue)) {
+    pomodoroActivity.value = previousValue;
+}
+}
+
+function initializePomodoro() {
+    const savedSessions = Number(localStorage.getItem("flexiTimePomodoroSessions"));
+    pomodoroSessionsCompleted = Number.isInteger(savedSessions) && savedSessions >= 0
+    ? savedSessions
+    : 0;
+
+
+    pomodoroModeButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+            if (pomodoroRunning) {
+                updatePomodoroStatus("Pause the current session before changing modes.");
+                return;
+            }
+
+            selectPomodoroMode(button.dataset.mode);
+        });
+    })
+
+    pomodoroStartButton.addEventListener("click", startPomodoroSession);
+    pomodoroResetButton.addEventListener("click", resetPomodoroSession);
+
+    updatePomodoroActivities();
+    updatePomodoroDisplay();
 }
 
 function updateTimer() {
@@ -249,11 +533,13 @@ function displayActivities() {
     activityList.replaceChildren();
 
     if (activities.length === 0) {
-        const message = document.createElement("p");
-        message.textContent = "Add an activity to see something here.";
-        activityList.appendChild(message);
-        updateSummary();
-        return;
+    const message = document.createElement("p");
+    message.textContent = "Add an activity to see something here.";
+    activityList.appendChild(message);
+
+    updateSummary();
+    updatePomodoroActivities();
+    return;
     }
 
     for (const activity of activities) {
@@ -340,6 +626,7 @@ function displayActivities() {
     }
 
     updateSummary();
+    updatePomodoroActivities();
 }
 
 addButton.addEventListener("click", () => {
@@ -360,7 +647,7 @@ helpButton.addEventListener("click", () => {
 
 closeHelpButton.addEventListener("click", () => {
     helpDialog.close();
-})
+});
 
 form.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -398,6 +685,8 @@ form.addEventListener("submit", (event) => {
 nameInput.addEventListener("input", () => {
     nameInput.setCustomValidity("");
 });
+
+initializePomodoro();
 
 checkForNewDay();
 displayActivities();

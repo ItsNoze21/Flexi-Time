@@ -2,6 +2,10 @@ const addButton = document.querySelector("#add-activity-button");
 const dialog = document.querySelector("#activity-dialog");
 const form = document.querySelector("#activity-form");
 const cancelButton = document.querySelector("#cancel-activity-button");
+const helpButton = document.querySelector("#help-button");
+const helpDialog = document.querySelector("#help-dialog");
+const closeHelpButton = document.querySelector("#close-help-button");
+
 const completionSound = document.querySelector("#completed-notification");
 
 const nameInput = document.querySelector("#activity-name");
@@ -83,6 +87,8 @@ function recordElapsedTime() {
 }
 
 function updateTimer() {
+    checkForNewDay();
+
     if (recordElapsedTime()) {
         displayActivities();
     }
@@ -149,6 +155,47 @@ function deleteActivity(activity) {
     }
 
     activities = activities.filter((item) => item !== activity);
+
+    saveActivities();
+    displayActivities();
+}
+
+function getToday() {
+    const date = new Date();
+
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+
+    return `${year}-${month}-${day}`
+}
+
+function checkForNewDay() {
+    const today = getToday();
+    const lastResetDate = localStorage.getItem("flexiTimeLastResetDate");
+
+    if (lastResetDate === null) {
+        localStorage.setItem("flexiTimeLastResetDate", today);
+        return;
+    }
+
+    if (lastResetDate === today) {
+        return;
+    }
+
+    if (timerInterval !== null) {
+        clearInterval(timerInterval);
+    }
+
+    timerInterval = null;
+    activeActivity = null;
+    lastTickTime = null;
+
+    for (const activity of activities) {
+        activity.completedSeconds = 0;
+    }
+
+    localStorage.setItem("flexiTimeLastResetDate", today);
 
     saveActivities();
     displayActivities();
@@ -307,6 +354,14 @@ cancelButton.addEventListener("click", () => {
     dialog.close();
 });
 
+helpButton.addEventListener("click", () => {
+    helpDialog.showModal();
+});
+
+closeHelpButton.addEventListener("click", () => {
+    helpDialog.close();
+})
+
 form.addEventListener("submit", (event) => {
     event.preventDefault();
 
@@ -344,4 +399,7 @@ nameInput.addEventListener("input", () => {
     nameInput.setCustomValidity("");
 });
 
+checkForNewDay();
 displayActivities();
+
+setInterval(checkForNewDay, 30000);
